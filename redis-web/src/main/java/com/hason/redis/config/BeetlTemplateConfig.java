@@ -1,6 +1,3 @@
-/*
- * Copyright 2014 - 2016 珠宝易 All Rights Reserved
- */
 package com.hason.redis.config;
 
 import org.beetl.core.resource.WebAppResourceLoader;
@@ -8,7 +5,6 @@ import org.beetl.ext.spring.BeetlGroupUtilConfiguration;
 import org.beetl.ext.spring.BeetlSpringViewResolver;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.core.io.support.ResourcePatternResolver;
@@ -22,7 +18,6 @@ import org.springframework.core.io.support.ResourcePatternUtils;
  * @date 2017/3/18
  */
 @Configuration
-@ComponentScan
 public class BeetlTemplateConfig {
 
     // 配置 Beetl
