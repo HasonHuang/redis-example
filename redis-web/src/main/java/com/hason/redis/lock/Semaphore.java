@@ -2,6 +2,7 @@ package com.hason.redis.lock;
 
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.Transaction;
+import redis.clients.jedis.ZParams;
 
 import java.util.List;
 import java.util.UUID;
@@ -17,6 +18,7 @@ public class Semaphore {
 
     private static final String PREFIX = "semaphore:";
     private static final String OWNER = ":owner";
+    private static final String COUNTER = ":counter";
 
     /**
      * 简单的计数信号量（不公平的）
@@ -59,8 +61,16 @@ public class Semaphore {
         return null;
     }
 
+    /**
+     * 释放简单信号量
+     *
+     * @param jedis Redis 客户端
+     * @param name 被锁对象
+     * @param token 信号量令牌，获取信号量时返回的内容
+     * @return true 成功，false 失败
+     */
     public boolean releaseSimple(Jedis jedis, String name, String token) {
-        jedis.zrem(PREFIX + name, token);
+        return jedis.zrem(PREFIX + name, token) == 1;
     }
 
     /**
@@ -86,19 +96,58 @@ public class Semaphore {
      * @return
      */
     public String acquireFair(Jedis jedis, String name, int limit, long lockTimeout) {
+        String semaphoreName = PREFIX + name;  // 超时集合
+        String semaphoreOwner = PREFIX + name + OWNER;  // 信号量拥有者
+        String semaphoreCounter = PREFIX + name + COUNTER;  // 计数器
+        String token = UUID.randomUUID().toString();  // 信号量令牌，代表一个信号量
+        long now = System.currentTimeMillis();
 
+        // 移除过期的信号量
+        Transaction transaction = jedis.multi();  // 保证原子性
+        transaction.zremrangeByScore(semaphoreName, "-inf", String.valueOf(now - lockTimeout));
+        // 交集的结果集的聚合方式：默认 SUM
+        // 交集运算前，分别对超时集合、拥有者集合的分值做乘法（为了不改变拥有者集合的分数值）
+        ZParams params = new ZParams();
+        params.weightsByDouble(1, 0);
+        // 交集结果覆盖到信号量拥有者集合
+        transaction.zinterstore(semaphoreOwner, params, semaphoreName, semaphoreOwner);
+        // 计数器自增
+        transaction.incr(semaphoreCounter);
+
+        // 获取信号量
+        List<Object> execList = transaction.exec();  // 为了得到计数器结果，执行事务
+        Long counterNum = (Long) execList.get(execList.size() - 1);
+        transaction = jedis.multi();
+        transaction.zadd(semaphoreName, now, token);
+        transaction.zadd(semaphoreOwner, counterNum, token);
+        transaction.zrank(semaphoreOwner, token);  // 获取新的信号量的排名
+
+        // 检查是否成功获取信号量
+        execList = transaction.exec();
+        Long rank = (Long) execList.get(execList.size() - 1);
+        if (rank < limit) {
+            return token;  // 排名足够低时表示获取成功（排名由 0 开始）
+        }
+
+        // 获取失败，移除这次添加的数据
+        transaction = jedis.multi();
+        transaction.zrem(semaphoreName,token);
+        transaction.zrem(semaphoreOwner, token);
+        transaction.exec();
+
+        return null;
     }
 
     /**
-     * 取消竞争条件的信号量。任何时候都应该使用这种信号量
+     * 取消竞争条件的公平信号量。任何时候都应该使用这种信号量
      *
      * 优点：保证信号量的数量不会超过限制
      *
-     * @param jedis
-     * @param name
-     * @param limit
-     * @param lockTimeout
-     * @return
+     * @param jedis Redis 客户端
+     * @param name 被锁对象
+     * @param limit 信号量的总数
+     * @param lockTimeout 信号量的有效时长，毫秒
+     * @return 成功时返回 UUID，失败时返回 null
      */
 
     public String acquireFairWithLock(
@@ -118,6 +167,14 @@ public class Semaphore {
         return null;
     }
 
+    /**
+     * 释放公平信号量
+     *
+     * @param jedis Redis 客户端
+     * @param name 被锁对象
+     * @param token 信号量令牌，获取信号量时返回的内容
+     * @return true 成功，false 失败
+     */
     public boolean releaseFair(Jedis jedis, String name, String token) {
         Transaction transaction = jedis.multi();
         transaction.zrem(PREFIX + name, token);  // 超时集合
@@ -127,7 +184,7 @@ public class Semaphore {
     }
 
     /**
-     * 刷新信号量。续期
+     * 刷新信号量（延长信号量有效期）
      *
      * @param jedis Redis客户端
      * @param name 被锁对象
