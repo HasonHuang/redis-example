@@ -110,7 +110,7 @@ public class Semaphore {
         ZParams params = new ZParams();
         params.weightsByDouble(1, 0);
         // 交集结果覆盖到信号量拥有者集合
-        transaction.zinterstore(semaphoreOwner, params, semaphoreName, semaphoreOwner);
+        transaction.zinterstore(semaphoreOwner, params, semaphoreOwner, semaphoreName);
         // 计数器自增
         transaction.incr(semaphoreCounter);
 

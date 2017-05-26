@@ -30,7 +30,7 @@ public class DistributedLock {
         String token = UUID.randomUUID().toString();
         long timestamp = System.currentTimeMillis() + timeout;
         // 失败时重新获取锁，直到超时为止
-        while (timestamp > System.currentTimeMillis()) {
+        while (timestamp >= System.currentTimeMillis()) {
             Long result = jedis.setnx(PREFIX + name, token);
             if (result == 1) {
                 return token;
