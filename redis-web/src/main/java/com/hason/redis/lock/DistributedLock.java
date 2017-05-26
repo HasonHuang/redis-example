@@ -93,7 +93,7 @@ public class DistributedLock {
                 Transaction transaction = jedis.multi();
                 transaction.del(lockName);
                 List<Object> result = transaction.exec();
-                if (result == null) {
+                if (result == null || result.isEmpty()) {
                     continue;  // 释放过程中锁被更新了，导致操作失败，重试
                 }
                 return true;
@@ -102,7 +102,7 @@ public class DistributedLock {
             jedis.unwatch();
             break;
         }
-        return true;
+        return false;
     }
 
     private static void sleep(long mills) {
