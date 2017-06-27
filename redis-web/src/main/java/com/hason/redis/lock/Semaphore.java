@@ -38,26 +38,29 @@ public class Semaphore {
      * @return 成功时返回 UUID，失败时返回 null
      */
     public String acquireSimple(Jedis jedis, String name, int limit, long lockTimeout) {
-        String semaphoreName = PREFIX + name;
+        // 获取存放锁的集合
+        String lockName = PREFIX + name;
+        // 生成锁令牌
         String token = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
 
-        Transaction transaction = jedis.multi();  // 使用事务保证原子性
-        // 清除过期的信号量
-        transaction.zremrangeByScore(semaphoreName, "-inf", String.valueOf(now - lockTimeout));
-        // 把 token 放进信号量集合，获取排名
-        transaction.zadd(semaphoreName, now, token);
-        transaction.zrank(semaphoreName, token);
-        List<Object> execList = transaction.exec();
+        // 使用事务进行操作，保证一致性
+        Transaction transaction = jedis.multi();
+        // 清除过期的锁，最小有效期 = now - lockTimeout
+        transaction.zremrangeByScore(lockName, "-inf", Double.toString(now - lockTimeout));
+        // 添加新的锁令牌到集合中
+        transaction.zadd(lockName, now, token);
+        // 获取新锁的排名(由0开始)，只有排名少于 limit 时表示未超出锁数量上限
+        transaction.zrank(lockName, token);
+        List<Object> resultList = transaction.exec();
 
-        // 获取排名
-        int rank = ((Long) execList.get(execList.size() - 1)).intValue();
+        int rank = ((Long) resultList.get(resultList.size() - 1)).intValue();
         if (rank < limit) {
-            return token;
+            return token;  // 获取成功
         }
 
-        // 获取信号量失败，清除无用数据
-        jedis.zrem(semaphoreName, token);
+        // 获取失败。删除锁令牌
+        jedis.zrem(lockName, token);
         return null;
     }
 
